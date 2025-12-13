@@ -249,7 +249,7 @@ async function main() {
             console.log('   ⚠️ PC端今日已签到');
             message += '⚠️ PC端已签到\n';
         } else {
-            console.log(`   ❌ PC端签到失败`);
+            console.log(`   ❌ PC端签到失败 (${pcSign.code}: ${pcSign.message || pcSign.msg || '未知错误'})`);
         }
 
         // 3. 云贝签到
