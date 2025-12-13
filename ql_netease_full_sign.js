@@ -2,7 +2,7 @@
  * 网易云音乐自动签到脚本
  * 
  * @description 支持青龙面板的全自动签到脚本
- * @author Your Name
+ * @author YiQing
  * @version 1.0.0
  * @license MIT
  * 
