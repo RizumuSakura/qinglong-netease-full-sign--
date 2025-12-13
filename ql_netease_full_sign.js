@@ -317,7 +317,7 @@ async function main() {
         try {
             const info = await yunbeiInfo();
             if (info.code === 200 && info.data) {
-                console.log(`   💰 云贝余额：${info.data.balance || 0}`);
+                console.log(`   💰 云贝余额：${info.data.shells || info.data.balance || 0}`);
             }
         } catch (e) { }
 
