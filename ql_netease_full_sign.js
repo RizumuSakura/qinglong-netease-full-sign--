@@ -314,11 +314,13 @@ async function main() {
         }
 
         // 获取云贝余额
+        let yunbeiBalance = 0;
         try {
             const info = await yunbeiInfo();
             if (info.code === 200) {
-                const balance = info.userPoint?.balance || info.data?.userPoint?.balance || 0;
-                console.log(`   💰 云贝余额：${balance}`);
+                yunbeiBalance = info.userPoint?.balance || info.data?.userPoint?.balance || 0;
+                console.log(`   💰 云贝余额：${yunbeiBalance}`);
+                message += `☁️ 云贝余额：${yunbeiBalance}\n`;
             }
         } catch (e) { }
 
@@ -377,7 +379,9 @@ async function main() {
             console.log(`   等级：${data.levelName || 'Lv.' + data.level}`);
             console.log(`   成长值：${data.growthPoint}`);
             console.log(`   昨日获得：+${data.yesterdayPoint || 0}`);
-            message += `\n💎 ${data.levelName || 'VIP'} (${data.growthPoint})\n`;
+            message += `\n💎 VIP等级：${data.levelName || 'Lv.' + data.level}\n`;
+            message += `📊 成长值：${data.growthPoint}\n`;
+            message += `📈 昨日获得：+${data.yesterdayPoint || 0}\n`;
         }
 
         // 6. 领取VIP任务奖励
