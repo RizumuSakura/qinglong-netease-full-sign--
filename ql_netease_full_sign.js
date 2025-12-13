@@ -256,8 +256,8 @@ async function main() {
         console.log('\n☁️ 云贝签到...');
         const yunbei = await yunbeiSign();
         if (yunbei.code === 200) {
-            console.log('   ✅ 云贝签到成功！');
-            message += '✅ 云贝签到成功\n';
+            console.log('   ✅ 云贝签到成功！+5云贝');
+            message += '✅ 云贝签到成功 (+5云贝)\n';
         } else {
             console.log('   ⚠️ 云贝今日已签到');
             message += '⚠️ 云贝已签到\n';
