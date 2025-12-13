@@ -39,7 +39,7 @@ docker run -dit \
 3. 填写：
    - 名称：`网易云签到`
    - 链接：`https://github.com/YiQing-House/qinglong-netease-full-sign--`
-   - 定时规则：`0 0 * * *`
+   - 定时规则：`0 9 * * *`
 4. 点击确定，等待拉取完成
 
 ### 3. 添加环境变量
@@ -122,4 +122,4 @@ docker run -dit \
 
 ## 📄 许可证
 
-MIT License
+[MIT License](LICENSE)
