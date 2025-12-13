@@ -50,6 +50,15 @@ docker run -dit \
 4. 值：你的 MUSIC_U cookie值
 5. 点击确定保存
 
+**（可选）配置TG通知：**
+
+| 变量名 | 说明 | 获取方式 |
+|--------|------|----------|
+| `TG_BOT_TOKEN` | 机器人Token | @BotFather 创建机器人获取 |
+| `TG_USER_ID` | 你的用户ID | 给 @userinfobot 发消息获取 |
+
+> ⚠️ 配置后需要先给机器人发一条消息，否则机器人无法主动给你发消息
+
 ### 4. 添加定时任务
 
 1. 进入青龙面板 → 定时任务
@@ -118,7 +127,7 @@ docker run -dit \
 - [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) - Node.js API服务
 - [whyour/qinglong](https://github.com/whyour/qinglong) - 青龙面板
 
-感谢 **Claude Opus 4** 对本项目开发的支持 🤖
+感谢 **Claude Opus 4.5** 对本项目开发的支持 🤖
 
 ## 📄 许可证
 
