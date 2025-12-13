@@ -2,7 +2,7 @@
  * 网易云音乐自动签到脚本
  * 
  * @description 支持青龙面板的全自动签到脚本
- * @author YiQing
+ * @author Your Name
  * @version 1.0.0
  * @license MIT
  * 
@@ -171,7 +171,7 @@ async function yunbeiTaskFinish(period, userTaskId, depositCode) {
 
 // 获取云贝余额
 async function yunbeiInfo() {
-    return await request('music.163.com', '/weapi/point/signed/get', {});
+    return await request('music.163.com', '/weapi/v1/user/info', {});
 }
 
 // 黑胶乐签打卡 ✨
@@ -316,8 +316,9 @@ async function main() {
         // 获取云贝余额
         try {
             const info = await yunbeiInfo();
-            if (info.code === 200 && info.data) {
-                console.log(`   💰 云贝余额：${info.data.shells || info.data.balance || 0}`);
+            if (info.code === 200) {
+                const balance = info.userPoint?.balance || info.data?.userPoint?.balance || 0;
+                console.log(`   💰 云贝余额：${balance}`);
             }
         } catch (e) { }
 
