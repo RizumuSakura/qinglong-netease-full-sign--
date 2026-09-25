@@ -1,8 +1,8 @@
 /**
  * 网易云音乐自动签到脚本
  * 
- * @description 支持青龙面板的全自动签到脚本（双重校验签到状态，优化日志显示）
- * @version 1.3.3 (Optimize)
+ * @description 支持青龙面板的全自动签到脚本（云贝与黑胶乐签均增加先查后签逻辑）
+ * @version 1.3.4 (Add VIP Check)
  * @license MIT
  */
 
@@ -161,13 +161,11 @@ async function dailySign(type = 0) {
 // 检查今日云贝是否已签到（双重验证机制）
 async function checkYunbeiSignToday() {
     try {
-        // 1. 专用状态接口检查
         const res = await request('music.163.com', '/weapi/pointmall/user/sign/today', {});
         if (res.code === 200 && (res.data === true || res.data?.isSign === true)) {
             return true;
         }
         
-        // 2. 备用：通过日常任务列表检查签到任务状态
         const tasks = await request('music.163.com', '/weapi/usertool/task/todo/query', {});
         if (tasks.code === 200 && Array.isArray(tasks.data)) {
             const signTask = tasks.data.find(t => t.taskName && t.taskName.includes('签到'));
@@ -175,9 +173,7 @@ async function checkYunbeiSignToday() {
                 return true;
             }
         }
-    } catch (e) {
-        // 忽略异常，由后续实际请求兜底
-    }
+    } catch (e) {}
     return false;
 }
 
@@ -234,11 +230,33 @@ function parseYunbeiBalance(info) {
     return null;
 }
 
-// 黑胶乐签与 VIP 成长任务
+// 检查黑胶VIP今日是否已签到（双重验证机制）
+async function checkVipSignToday() {
+    try {
+        const res = await request('music.163.com', '/weapi/vipnewcenter/app/level/task/list', {});
+        if (res.code === 200 && res.data && Array.isArray(res.data.taskList)) {
+            const signTask = res.data.taskList.find(t => t.actionType === 'SIGNIN' || (t.taskName && t.taskName.includes('签到')));
+            if (signTask && (signTask.status === 1 || signTask.status === 100 || signTask.isComplete === true)) {
+                return true;
+            }
+        }
+        
+        const growth = await getVipGrowth();
+        if (growth.code === 200 && growth.data) {
+            if (growth.data.isSign === true || growth.data.userLevel?.isSign === true) {
+                return true;
+            }
+        }
+    } catch (e) {}
+    return false;
+}
+
+// 黑胶乐签执行
 async function vipSign() {
     return await request('interface3.music.163.com', '/weapi/vip-center-bff/task/sign', {});
 }
 
+// VIP 成长任务
 async function getVipMissionProgress() {
     return await request('interface3.music.163.com', '/weapi/middle/vip/mission/user/progress/list', {});
 }
@@ -250,6 +268,7 @@ async function receiveVipMissionReward(userRewardId, userProgressId) {
     });
 }
 
+// VIP 成长值基础信息
 async function getVipGrowth() {
     return await request('music.163.com', '/weapi/vipnewcenter/app/level/growhpoint/basic', {});
 }
@@ -305,7 +324,7 @@ async function main() {
             const isSigned = await checkYunbeiSignToday();
             
             if (isSigned) {
-                console.log('   ℹ️ 云贝今日已签到');
+                console.log('   ℹ️ 状态检查：云贝今日已签到，跳过请求。');
                 message += '☁️ 云贝：今日已签到\n';
             } else {
                 const yunbei = await yunbeiSign();
@@ -328,7 +347,6 @@ async function main() {
                         console.log(`   ✅ 云贝签到成功！获得 ${point} 云贝`);
                         message += `✅ 云贝签到成功 (+${point}云贝)\n`;
                     } else {
-                        // 兜底逻辑：接口返回200但下发云贝为0，大概率是网易云对重复打卡的新版空响应
                         console.log('   ℹ️ 云贝今日已签到');
                         message += '☁️ 云贝：今日已签到\n';
                     }
@@ -405,17 +423,28 @@ async function main() {
             }
         } catch (e) {}
 
-        // 4. 黑胶乐签打卡
+        // 4. 黑胶乐签打卡 (双重校验防重复)
         console.log('\n💎 黑胶乐签打卡...');
-        const vipSignResult = await vipSign();
-        if (vipSignResult.code === 200 && vipSignResult.data === true) {
-            console.log('   ✅ 黑胶乐签打卡成功！+3成长值');
-            message += '✅ 黑胶乐签成功 (+3成长值)\n';
-        } else if (vipSignResult.code === 200 && vipSignResult.data === false) {
-            console.log('   ✅ 黑胶乐签今日已打卡');
-            message += '💎 黑胶乐签：今日已打卡\n';
-        } else {
-            console.log(`   ⚠️ 黑胶乐签：${vipSignResult.message || vipSignResult.msg || '非黑胶用户或已打卡'}`);
+        try {
+            const isVipSigned = await checkVipSignToday();
+            
+            if (isVipSigned) {
+                console.log('   ℹ️ 状态检查：黑胶VIP今日已签到，跳过请求。');
+                message += '💎 黑胶乐签：今日已签到\n';
+            } else {
+                const vipSignResult = await vipSign();
+                if (vipSignResult.code === 200 && vipSignResult.data === true) {
+                    console.log('   ✅ 黑胶乐签打卡成功！+3成长值');
+                    message += '✅ 黑胶乐签成功 (+3成长值)\n';
+                } else if (vipSignResult.code === 200 && vipSignResult.data === false) {
+                    console.log('   ℹ️ 黑胶乐签今日已打卡');
+                    message += '💎 黑胶乐签：今日已打卡\n';
+                } else {
+                    console.log(`   ⚠️ 黑胶乐签：${vipSignResult.message || vipSignResult.msg || '非黑胶用户或已打卡'}`);
+                }
+            }
+        } catch (e) {
+            console.log(`   ⚠️ 黑胶乐签执行异常: ${e.message}`);
         }
 
         // 5. VIP 成长日常任务
