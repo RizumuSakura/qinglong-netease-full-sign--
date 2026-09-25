@@ -1,8 +1,8 @@
 /**
  * 网易云音乐自动签到脚本
  * 
- * @description 支持青龙面板的全自动签到脚本（修复云贝假签到与风控问题）
- * @version 1.3.1 (Fix)
+ * @description 支持青龙面板的全自动签到脚本（增加云贝先查后签逻辑、修复风控假死）
+ * @version 1.3.2 (Fix & Optimize)
  * @license MIT
  */
 
@@ -24,7 +24,7 @@ if (uMatch) musicU = uMatch[1];
 const csrfMatch = rawEnvCookie.match(/__csrf=([^;]+)/);
 const csrfToken = csrfMatch ? csrfMatch[1] : '';
 
-// 修复点 1：提取或生成 deviceId，对抗风控假死
+// 提取或生成 deviceId，对抗风控假死
 const deviceIdMatch = rawEnvCookie.match(/deviceId=([^;]+)/);
 let deviceId = deviceIdMatch ? deviceIdMatch[1] : '';
 if (!deviceId) {
@@ -101,7 +101,7 @@ function request(hostname, path, data = {}, extra = {}) {
         const postData = `params=${encodeURIComponent(encrypted.params)}&encSecKey=${encodeURIComponent(encrypted.encSecKey)}`;
 
         const os = extra.os || 'android'; 
-        // 修复点 2：将默认 App 版本号提升，避免低版本被风控静默拦截
+        // 升级 App 版本号，避免低版本被风控静默拦截
         const appver = extra.appver || (os === 'android' ? '9.0.70' : '3.0.0');
 
         const options = {
@@ -113,7 +113,7 @@ function request(hostname, path, data = {}, extra = {}) {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': Buffer.byteLength(postData),
-                // 加入 deviceId
+                // 注入设备ID模拟真实环境
                 'Cookie': `MUSIC_U=${musicU}; __csrf=${csrfToken}; os=${os}; appver=${appver}; deviceId=${deviceId};`,
                 'User-Agent': os === 'android'
                     ? `NeteaseMusic/${appver} (Android 12; Pixel 6)`
@@ -149,7 +149,8 @@ function request(hostname, path, data = {}, extra = {}) {
     });
 }
 
-// 接口方法定义
+// ================= 接口方法定义 =================
+
 async function getUserInfo() {
     return await request('music.163.com', '/weapi/nuser/account/get', {});
 }
@@ -159,14 +160,22 @@ async function dailySign(type = 0) {
     return await request('music.163.com', '/weapi/point/dailyTask', { type }, { os });
 }
 
-// 查询今日云贝签到状态
-async function getYunbeiSignToday() {
-    return await request('music.163.com', '/weapi/pointmall/user/sign/today', {});
+// 检查今日云贝是否已签到（先查后签逻辑）
+async function checkYunbeiSignToday() {
+    try {
+        const res = await request('music.163.com', '/weapi/pointmall/user/sign/today', {});
+        if (res.code === 200 && res.data === true) {
+            return true; // 确认今日已签到
+        }
+    } catch (e) {
+        console.log(`   ⚠️ 检查云贝签到状态异常: ${e.message}`);
+    }
+    return false; // 未签到或异常时返回 false
 }
 
 // 执行云贝签到打卡
 async function yunbeiSign() {
-    // 修复点 3：必须加入 type 参数 (0为安卓)，否则会返回假 200
+    // 强制加入 type: 0 参数
     return await request('music.163.com', '/weapi/pointmall/user/sign', { type: 0 });
 }
 
@@ -200,6 +209,7 @@ async function getYunbeiInfo() {
     return await request('music.163.com', '/weapi/v1/user/info', {});
 }
 
+// 解析云贝余额
 function parseYunbeiBalance(info) {
     if (!info || info.code !== 200) return null;
     const candidates = [
@@ -241,6 +251,8 @@ async function receiveAllVipReward() {
     return await request('music.163.com', '/weapi/vipnewcenter/app/level/task/reward/getall', {});
 }
 
+// ================= 主执行流程 =================
+
 async function main() {
     console.log('🎵 网易云音乐自动签到');
     console.log('时间：' + new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
@@ -249,6 +261,7 @@ async function main() {
     let message = '';
 
     try {
+        // 1. 登录状态验证
         console.log('\n🔐 检查登录状态...');
         const userInfo = await getUserInfo();
         const account = userInfo.account || userInfo.data?.account;
@@ -263,6 +276,7 @@ async function main() {
             return;
         }
 
+        // 2. 旧版普通签到
         console.log('\n📝 旧版普通签到（积分系统已清退，仅作通道连通）...');
         const androidSign = await dailySign(0);
         if (androidSign.code === 200) {
@@ -278,12 +292,14 @@ async function main() {
             console.log('   ℹ️ PC端旧签到接口已由官方永久下线 (403)');
         }
 
+        // 3. 云贝签到 (先查后签)
         console.log('\n☁️ 云贝签到...');
         try {
-            const todayStatus = await getYunbeiSignToday();
-            if (todayStatus.code === 200 && todayStatus.data === true) {
-                console.log('   ⚠️ 云贝今日已签到');
-                message += '⚠️ 云贝今日已签到\n';
+            const isSigned = await checkYunbeiSignToday();
+            
+            if (isSigned) {
+                console.log('   ℹ️ 状态检查：云贝今日已签到，跳过请求。');
+                message += '☁️ 云贝：今日已签到\n';
             } else {
                 const yunbei = await yunbeiSign();
                 const msg = yunbei.msg || yunbei.message || '';
@@ -295,7 +311,6 @@ async function main() {
 
                 if (yunbei.code === 200 && !isAlreadySigned) {
                     let point = 0;
-                    // 修复点 4：增加签到字段容错
                     if (typeof yunbei.point === 'number') point = yunbei.point;
                     else if (typeof yunbei.data === 'number') point = yunbei.data;
                     else if (typeof yunbei.data?.point === 'number') point = yunbei.data.point;
@@ -305,7 +320,6 @@ async function main() {
                         console.log(`   ✅ 云贝签到成功！获得 ${point} 云贝`);
                         message += `✅ 云贝签到成功 (+${point}云贝)\n`;
                     } else {
-                        // 如果仍然返回 0，提示可能是风控拦截
                         console.log('   ⚠️ 云贝签到请求成功，但未返回云贝数量 (可能被风控静默)');
                         message += '⚠️ 云贝签到异常(0云贝)\n';
                     }
@@ -320,6 +334,7 @@ async function main() {
             console.log(`   ⚠️ 云贝签到执行异常: ${e.message}`);
         }
 
+        // 3.1 云贝连签进度奖励
         console.log('\n📅 云贝签到进度奖励...');
         try {
             const progress = await yunbeiSignProgress();
@@ -340,6 +355,7 @@ async function main() {
             }
         } catch (e) {}
 
+        // 3.2 云贝日常任务
         console.log('\n📋 云贝日常任务...');
         try {
             const tasks = await yunbeiTaskTodo();
@@ -368,6 +384,7 @@ async function main() {
             }
         } catch (e) {}
 
+        // 3.3 云贝当前余额获取
         try {
             const info = await getYunbeiInfo();
             const balance = parseYunbeiBalance(info);
@@ -379,6 +396,7 @@ async function main() {
             }
         } catch (e) {}
 
+        // 4. 黑胶乐签打卡
         console.log('\n💎 黑胶乐签打卡...');
         const vipSignResult = await vipSign();
         if (vipSignResult.code === 200 && vipSignResult.data === true) {
@@ -391,6 +409,7 @@ async function main() {
             console.log(`   ⚠️ 黑胶乐签：${vipSignResult.message || vipSignResult.msg || '非黑胶用户或已打卡'}`);
         }
 
+        // 5. VIP 成长日常任务
         console.log('\n📋 VIP成长日常任务...');
         try {
             const missions = await getVipMissionProgress();
@@ -422,6 +441,7 @@ async function main() {
             }
         } catch (e) {}
 
+        // 6. VIP 成长值及批量奖励
         console.log('\n📊 VIP成长值...');
         const vipGrowth = await getVipGrowth();
         if (vipGrowth.code === 200 && vipGrowth.data) {
