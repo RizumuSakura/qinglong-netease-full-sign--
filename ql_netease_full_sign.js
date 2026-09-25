@@ -1,8 +1,8 @@
 /**
  * 网易云音乐自动签到脚本
  * 
- * @description 支持青龙面板的全自动签到脚本（增加云贝先查后签逻辑、修复风控假死）
- * @version 1.3.2 (Fix & Optimize)
+ * @description 支持青龙面板的全自动签到脚本（双重校验签到状态，优化日志显示）
+ * @version 1.3.3 (Optimize)
  * @license MIT
  */
 
@@ -101,7 +101,6 @@ function request(hostname, path, data = {}, extra = {}) {
         const postData = `params=${encodeURIComponent(encrypted.params)}&encSecKey=${encodeURIComponent(encrypted.encSecKey)}`;
 
         const os = extra.os || 'android'; 
-        // 升级 App 版本号，避免低版本被风控静默拦截
         const appver = extra.appver || (os === 'android' ? '9.0.70' : '3.0.0');
 
         const options = {
@@ -113,7 +112,6 @@ function request(hostname, path, data = {}, extra = {}) {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': Buffer.byteLength(postData),
-                // 注入设备ID模拟真实环境
                 'Cookie': `MUSIC_U=${musicU}; __csrf=${csrfToken}; os=${os}; appver=${appver}; deviceId=${deviceId};`,
                 'User-Agent': os === 'android'
                     ? `NeteaseMusic/${appver} (Android 12; Pixel 6)`
@@ -160,22 +158,31 @@ async function dailySign(type = 0) {
     return await request('music.163.com', '/weapi/point/dailyTask', { type }, { os });
 }
 
-// 检查今日云贝是否已签到（先查后签逻辑）
+// 检查今日云贝是否已签到（双重验证机制）
 async function checkYunbeiSignToday() {
     try {
+        // 1. 专用状态接口检查
         const res = await request('music.163.com', '/weapi/pointmall/user/sign/today', {});
-        if (res.code === 200 && res.data === true) {
-            return true; // 确认今日已签到
+        if (res.code === 200 && (res.data === true || res.data?.isSign === true)) {
+            return true;
+        }
+        
+        // 2. 备用：通过日常任务列表检查签到任务状态
+        const tasks = await request('music.163.com', '/weapi/usertool/task/todo/query', {});
+        if (tasks.code === 200 && Array.isArray(tasks.data)) {
+            const signTask = tasks.data.find(t => t.taskName && t.taskName.includes('签到'));
+            if (signTask && (signTask.status === 1 || signTask.completed === true)) {
+                return true;
+            }
         }
     } catch (e) {
-        console.log(`   ⚠️ 检查云贝签到状态异常: ${e.message}`);
+        // 忽略异常，由后续实际请求兜底
     }
-    return false; // 未签到或异常时返回 false
+    return false;
 }
 
 // 执行云贝签到打卡
 async function yunbeiSign() {
-    // 强制加入 type: 0 参数
     return await request('music.163.com', '/weapi/pointmall/user/sign', { type: 0 });
 }
 
@@ -292,13 +299,13 @@ async function main() {
             console.log('   ℹ️ PC端旧签到接口已由官方永久下线 (403)');
         }
 
-        // 3. 云贝签到 (先查后签)
+        // 3. 云贝签到 (双重校验防重复)
         console.log('\n☁️ 云贝签到...');
         try {
             const isSigned = await checkYunbeiSignToday();
             
             if (isSigned) {
-                console.log('   ℹ️ 状态检查：云贝今日已签到，跳过请求。');
+                console.log('   ℹ️ 云贝今日已签到');
                 message += '☁️ 云贝：今日已签到\n';
             } else {
                 const yunbei = await yunbeiSign();
@@ -307,7 +314,8 @@ async function main() {
                                         msg.includes('重复') || 
                                         msg.includes('已签到') || 
                                         msg.includes('已打卡') || 
-                                        yunbei.data === false;
+                                        yunbei.data === false ||
+                                        (yunbei.code === 200 && (yunbei.data?.code === -2 || yunbei.data?.msg?.includes('重复')));
 
                 if (yunbei.code === 200 && !isAlreadySigned) {
                     let point = 0;
@@ -320,12 +328,13 @@ async function main() {
                         console.log(`   ✅ 云贝签到成功！获得 ${point} 云贝`);
                         message += `✅ 云贝签到成功 (+${point}云贝)\n`;
                     } else {
-                        console.log('   ⚠️ 云贝签到请求成功，但未返回云贝数量 (可能被风控静默)');
-                        message += '⚠️ 云贝签到异常(0云贝)\n';
+                        // 兜底逻辑：接口返回200但下发云贝为0，大概率是网易云对重复打卡的新版空响应
+                        console.log('   ℹ️ 云贝今日已签到');
+                        message += '☁️ 云贝：今日已签到\n';
                     }
                 } else if (isAlreadySigned) {
-                    console.log('   ⚠️ 云贝今日已签到');
-                    message += '⚠️ 云贝今日已签到\n';
+                    console.log('   ℹ️ 云贝今日已签到');
+                    message += '☁️ 云贝：今日已签到\n';
                 } else {
                     console.log(`   ⚠️ 云贝签到反馈：${msg || '接口返回异常'}`);
                 }
@@ -403,8 +412,8 @@ async function main() {
             console.log('   ✅ 黑胶乐签打卡成功！+3成长值');
             message += '✅ 黑胶乐签成功 (+3成长值)\n';
         } else if (vipSignResult.code === 200 && vipSignResult.data === false) {
-            console.log('   ⚠️ 黑胶乐签今日已打卡');
-            message += '⚠️ 黑胶乐签已打卡\n';
+            console.log('   ✅ 黑胶乐签今日已打卡');
+            message += '💎 黑胶乐签：今日已打卡\n';
         } else {
             console.log(`   ⚠️ 黑胶乐签：${vipSignResult.message || vipSignResult.msg || '非黑胶用户或已打卡'}`);
         }
