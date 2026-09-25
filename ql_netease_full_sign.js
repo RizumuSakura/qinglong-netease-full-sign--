@@ -1,8 +1,8 @@
 /**
  * 网易云音乐自动签到脚本
  * 
- * @description 支持青龙面板的全自动签到脚本（云贝与黑胶乐签均增加先查后签逻辑）
- * @version 1.3.4 (Add VIP Check)
+ * @description 支持青龙面板的全自动签到脚本（全面覆盖云贝与黑胶乐签的先查后签逻辑，极致优化日志）
+ * @version 1.3.5 (Ultimate Optimization)
  * @license MIT
  */
 
@@ -158,7 +158,7 @@ async function dailySign(type = 0) {
     return await request('music.163.com', '/weapi/point/dailyTask', { type }, { os });
 }
 
-// 检查今日云贝是否已签到（双重验证机制）
+// 云贝签到前置检查
 async function checkYunbeiSignToday() {
     try {
         const res = await request('music.163.com', '/weapi/pointmall/user/sign/today', {});
@@ -177,7 +177,7 @@ async function checkYunbeiSignToday() {
     return false;
 }
 
-// 执行云贝签到打卡
+// 执行云贝签到
 async function yunbeiSign() {
     return await request('music.163.com', '/weapi/pointmall/user/sign', { type: 0 });
 }
@@ -230,17 +230,30 @@ function parseYunbeiBalance(info) {
     return null;
 }
 
-// 检查黑胶VIP今日是否已签到（双重验证机制）
+// 黑胶乐签前置检查（升级为三重校验，涵盖新老版本接口）
 async function checkVipSignToday() {
     try {
+        // 1. 新版乐签详情接口 (最准确)
+        const signPage = await request('interface3.music.163.com', '/weapi/vip-center-bff/page/sign/detail', {});
+        if (signPage.code === 200 && signPage.data) {
+            if (signPage.data.todaySign === true || signPage.data.isSign === true) {
+                return true;
+            }
+        }
+
+        // 2. 旧版 VIP 任务列表检查
         const res = await request('music.163.com', '/weapi/vipnewcenter/app/level/task/list', {});
         if (res.code === 200 && res.data && Array.isArray(res.data.taskList)) {
-            const signTask = res.data.taskList.find(t => t.actionType === 'SIGNIN' || (t.taskName && t.taskName.includes('签到')));
+            const signTask = res.data.taskList.find(t => 
+                (t.actionType && t.actionType.toUpperCase().includes('SIGN')) || 
+                (t.taskName && (t.taskName.includes('签到') || t.taskName.includes('乐签')))
+            );
             if (signTask && (signTask.status === 1 || signTask.status === 100 || signTask.isComplete === true)) {
                 return true;
             }
         }
         
+        // 3. 基础成长值状态检查
         const growth = await getVipGrowth();
         if (growth.code === 200 && growth.data) {
             if (growth.data.isSign === true || growth.data.userLevel?.isSign === true) {
@@ -318,13 +331,13 @@ async function main() {
             console.log('   ℹ️ PC端旧签到接口已由官方永久下线 (403)');
         }
 
-        // 3. 云贝签到 (双重校验防重复)
+        // 3. 云贝签到 (先查后签)
         console.log('\n☁️ 云贝签到...');
         try {
             const isSigned = await checkYunbeiSignToday();
             
             if (isSigned) {
-                console.log('   ℹ️ 状态检查：云贝今日已签到，跳过请求。');
+                console.log('   ℹ️ 云贝今日已签到');
                 message += '☁️ 云贝：今日已签到\n';
             } else {
                 const yunbei = await yunbeiSign();
@@ -423,14 +436,14 @@ async function main() {
             }
         } catch (e) {}
 
-        // 4. 黑胶乐签打卡 (双重校验防重复)
+        // 4. 黑胶乐签打卡 (全面校验防重复)
         console.log('\n💎 黑胶乐签打卡...');
         try {
             const isVipSigned = await checkVipSignToday();
             
             if (isVipSigned) {
-                console.log('   ℹ️ 状态检查：黑胶VIP今日已签到，跳过请求。');
-                message += '💎 黑胶乐签：今日已签到\n';
+                console.log('   ℹ️ 黑胶乐签今日已打卡');
+                message += '💎 黑胶乐签：今日已打卡\n';
             } else {
                 const vipSignResult = await vipSign();
                 if (vipSignResult.code === 200 && vipSignResult.data === true) {
